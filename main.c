@@ -9,11 +9,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 extern uint32_t startTime;
 extern uint32_t endTime;
 uint8_t pulsing = 0;
-uint32_t distanceArray[100];
+int distanceArray[100];
 uint8_t distanceIndex = 0;
 
 
@@ -76,6 +77,7 @@ int main(void){
 	//Main program loop
   while(1){
 		
+		uint16_t interrupted = 0;
 		//Get current time
 		uint32_t currentTime = getCNT();
 		
@@ -95,23 +97,76 @@ int main(void){
 			char str[100];
 			uint32_t timeDifference = endTime - startTime;
 			uint32_t distance = (timeDifference / 6);
-			distanceArray[distanceIndex] = distance;
+			
+			if(distance > 1000 || distance < 50){
+				distanceArray[distanceIndex] = -1;
+			}
+			else{
+				distanceArray[distanceIndex] = distance;
+			}
 			distanceIndex++;
 			startTime = 0;
 			endTime = 0;
 		}
 		
-		if(distanceIndex == 100){
-
-			qsort(distanceArray, 100, sizeof(uint32_t), comparator);
-			uint32_t mean = 0;
-			for(int i = 0;  i < 100; i++){
-				mean += distanceArray[i];
+		//interrupts
+		if((USART2->ISR & USART_ISR_RXNE)){
+			getChar();
+			
+			for( int i = distanceIndex; i < 100; i++){
+				distanceArray[i] = -1;
 			}
-			mean = mean / 100;
-			uint32_t min = distanceArray[0];
-			uint32_t max = distanceArray[99];
-			uint32_t med = distanceArray[50];
+			interrupted = 1;
+			
+		}
+		
+		if(distanceIndex == 99 || interrupted){
+
+			qsort(distanceArray, distanceIndex, sizeof(uint32_t), comparator);
+			double mean = 0;
+			
+			uint16_t usableIndex = 0;
+			float meanAmount = 0;
+			//find mean
+			for(int i = 0;  i < distanceIndex; i++){
+				
+				char report[100];
+				
+				if(distanceArray[i] == -1){
+					usableIndex++;
+					sprintf(report, "***,");
+				}
+				else{
+					mean += distanceArray[i];
+					meanAmount += 1.0;
+					sprintf(report, "%d,", distanceArray[i]);
+				}
+				putString(report);
+			}
+			putString("\r\n");
+			mean = mean / meanAmount;
+			uint32_t min = distanceArray[usableIndex];
+			uint32_t max = distanceArray[distanceIndex-1];
+			uint32_t med = distanceArray[((distanceIndex - usableIndex) + ((distanceIndex - usableIndex)/2))];
+			//find std deviation
+			double stdDev = 0;
+			for(int i = usableIndex; i < distanceIndex; i++){
+				stdDev += (distanceArray[i] - mean) * (distanceArray[i] - mean);
+				if(i == usableIndex + (distanceIndex - usableIndex) /2){
+					med = distanceArray[i];
+				}
+
+			}
+			stdDev = stdDev / (float) ((distanceIndex - usableIndex) - 1);
+			stdDev = sqrt(stdDev);
+			
+			//Report
+			char report[100];
+			sprintf(report, "Min: %d\r\nMax: %d\r\nMed: %d\r\nMean: %f\r\nStd Dev: %f\r\n",
+				min, max, med, mean, stdDev);
+			putString(report);
+			
+			distanceIndex = 0;
 		}
 		
   }
